@@ -1,69 +1,78 @@
 const board = document.getElementById('board');
 const cells = document.querySelectorAll('.cell');
-let currentPlayer = 'X'; // プレイヤー X か O
-let gameState = Array(9).fill(null);
+const statusText = document.getElementById('status');
+const resetButton = document.getElementById('reset');
 
-// WebSocketサーバーに接続
-const socket = new WebSocket('ws://localhost:8080/ws');
+let currentPlayer = 'X';
+let gameState = ['', '', '', '', '', '', '', '', ''];
+let gameActive = true;
 
-// WebSocketが開いたときの処理
-socket.addEventListener('open', () => {
-    console.log('Connected to the server');
-});
+const winningConditions = [
+    [0, 1, 2],
+    [3, 4, 5],
+    [6, 7, 8],
+    [0, 3, 6],
+    [1, 4, 7],
+    [2, 5, 8],
+    [0, 4, 8],
+    [2, 4, 6]
+];
+
+// 通信サーバーと接続
+const socket = new WebSocket('ws://localhost:8080');
+
+// ゲームの勝利条件を確認
+function checkWin() {
+    let roundWon = false;
+    for (let i = 0; i < winningConditions.length; i++) {
+        const [a, b, c] = winningConditions[i];
+        if (gameState[a] && gameState[a] === gameState[b] && gameState[a] === gameState[c]) {
+            roundWon = true;
+            break;
+        }
+    }
+    if (roundWon) {
+        statusText.textContent = `${currentPlayer} の勝利！`;
+        gameActive = false;
+        return true;
+    }
+    if (!gameState.includes('')) {
+        statusText.textContent = '引き分けです！';
+        gameActive = false;
+        return true;
+    }
+    return false;
+}
 
 // セルがクリックされたときの処理
-cells.forEach(cell => {
-    cell.addEventListener('click', () => {
-        const index = cell.getAttribute('data-index');
-
-        // すでに記号がある場合は無視
-        if (gameState[index] !== null) return;
-
-        // 現在のプレイヤーの記号をボードにセット
+function cellClicked(event) {
+    const index = event.target.getAttribute('data-index');
+    if (gameState[index] === '' && gameActive) {
         gameState[index] = currentPlayer;
-        cell.textContent = currentPlayer;
-
-        // 次のプレイヤーに交代
-        currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
-
-        // WebSocketで他のプレイヤーに通知
-        socket.send(JSON.stringify({ index, player: gameState[index] }));
-
-        // 勝利条件をチェック
-        checkWinner();
-    });
-});
-
-// WebSocketメッセージを受信したときの処理
-socket.addEventListener('message', (event) => {
-    const { index, player } = JSON.parse(event.data);
-
-    // 他プレイヤーの動作を反映
-    gameState[index] = player;
-    cells[index].textContent = player;
-});
-
-// 勝利条件をチェック
-function checkWinner() {
-    const winPatterns = [
-        [0, 1, 2], [3, 4, 5], [6, 7, 8], // 横
-        [0, 3, 6], [1, 4, 7], [2, 5, 8], // 縦
-        [0, 4, 8], [2, 4, 6]  // 斜め
-    ];
-
-    for (const pattern of winPatterns) {
-        const [a, b, c] = pattern;
-        if (gameState[a] && gameState[a] === gameState[b] && gameState[a] === gameState[c]) {
-            alert(`${gameState[a]} wins!`);
-            resetGame();
-            break;
+        event.target.textContent = currentPlayer;
+        socket.send(JSON.stringify({ index, player: currentPlayer })); // 他のプレイヤーに送信
+        if (!checkWin()) {
+            currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
+            statusText.textContent = `${currentPlayer} のターン`;
         }
     }
 }
 
-// ゲームリセット
-function resetGame() {
-    gameState.fill(null);
-    cells.forEach(cell => cell.textContent = '');
+// 他のプレイヤーからの更新を受け取る
+socket.onmessage = function(event) {
+    const data = JSON.parse(event.data);
+    gameState[data.index] = data.player;
+    cells[data.index].textContent = data.player;
+    checkWin();
+};
+
+cells.forEach(cell => cell.addEventListener('click', cellClicked));
+
+// リセットボタンの処理
+resetButton.addEventListener('click', () => {
+    gameState = ['', '', '', '', '', '', '', '', ''];
+    cells.forEach(cell => (cell.textContent = ''));
     currentPlayer = 'X';
-}
+    statusText.textContent = `${currentPlayer} のターン`;
+    gameActive = true;
+});
