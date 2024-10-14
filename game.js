@@ -1,60 +1,69 @@
-const socket = new WebSocket('wss://your-paizacloud-server-url');
-let roomId = '';
-let currentPlayer = '';
-let gameActive = false;
+const board = document.getElementById('board');
+const cells = document.querySelectorAll('.cell');
+let currentPlayer = 'X'; // プレイヤー X か O
+let gameState = Array(9).fill(null);
 
-document.getElementById('create-room-btn').addEventListener('click', createRoom);
-document.getElementById('join-room-btn').addEventListener('click', joinRoom);
+// WebSocketサーバーに接続
+const socket = new WebSocket('ws://localhost:8080/ws');
 
-const cells = document.querySelectorAll('[data-cell]');
-cells.forEach(cell => cell.addEventListener('click', handleClick));
+// WebSocketが開いたときの処理
+socket.addEventListener('open', () => {
+    console.log('Connected to the server');
+});
 
-socket.onmessage = (event) => {
-    const data = JSON.parse(event.data);
+// セルがクリックされたときの処理
+cells.forEach(cell => {
+    cell.addEventListener('click', () => {
+        const index = cell.getAttribute('data-index');
 
-    if (data.type === 'startGame') {
-        startGame(data.player);
-    } else if (data.type === 'move') {
-        updateBoard(data.index, data.player);
-    } else if (data.type === 'gameOver') {
-        gameOver(data.winner);
+        // すでに記号がある場合は無視
+        if (gameState[index] !== null) return;
+
+        // 現在のプレイヤーの記号をボードにセット
+        gameState[index] = currentPlayer;
+        cell.textContent = currentPlayer;
+
+        // 次のプレイヤーに交代
+        currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
+
+        // WebSocketで他のプレイヤーに通知
+        socket.send(JSON.stringify({ index, player: gameState[index] }));
+
+        // 勝利条件をチェック
+        checkWinner();
+    });
+});
+
+// WebSocketメッセージを受信したときの処理
+socket.addEventListener('message', (event) => {
+    const { index, player } = JSON.parse(event.data);
+
+    // 他プレイヤーの動作を反映
+    gameState[index] = player;
+    cells[index].textContent = player;
+});
+
+// 勝利条件をチェック
+function checkWinner() {
+    const winPatterns = [
+        [0, 1, 2], [3, 4, 5], [6, 7, 8], // 横
+        [0, 3, 6], [1, 4, 7], [2, 5, 8], // 縦
+        [0, 4, 8], [2, 4, 6]  // 斜め
+    ];
+
+    for (const pattern of winPatterns) {
+        const [a, b, c] = pattern;
+        if (gameState[a] && gameState[a] === gameState[b] && gameState[a] === gameState[c]) {
+            alert(`${gameState[a]} wins!`);
+            resetGame();
+            break;
+        }
     }
-};
-
-function createRoom() {
-    roomId = Math.random().toString(36).substring(7);
-    socket.send(JSON.stringify({ type: 'createRoom', roomId }));
-    document.getElementById('room-section').classList.add('hidden');
-    document.getElementById('game-board').classList.remove('hidden');
 }
 
-function joinRoom() {
-    roomId = document.getElementById('room-id').value;
-    socket.send(JSON.stringify({ type: 'joinRoom', roomId }));
-    document.getElementById('room-section').classList.add('hidden');
-    document.getElementById('game-board').classList.remove('hidden');
-}
-
-function startGame(player) {
-    currentPlayer = player;
-    gameActive = true;
-    document.getElementById('status').innerText = `${player === 'X' ? 'あなたのターン' : '相手のターン'}`;
-}
-
-function handleClick(e) {
-    if (!gameActive || currentPlayer !== 'X') return;
-
-    const index = Array.from(cells).indexOf(e.target);
-    socket.send(JSON.stringify({ type: 'move', index, roomId, player: currentPlayer }));
-}
-
-function updateBoard(index, player) {
-    cells[index].innerText = player;
-    currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
-    document.getElementById('status').innerText = `${currentPlayer === 'X' ? 'あなたのターン' : '相手のターン'}`;
-}
-
-function gameOver(winner) {
-    gameActive = false;
-    document.getElementById('status').innerText = winner ? `${winner}の勝利！` : '引き分け';
+// ゲームリセット
+function resetGame() {
+    gameState.fill(null);
+    cells.forEach(cell => cell.textContent = '');
+    currentPlayer = 'X';
 }
